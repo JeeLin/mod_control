@@ -1,0 +1,130 @@
+<configuration name="control.conf" description="control config">
+
+  <settings>
+    <param name="port" value="9860" />
+    <param name="default-timeout" value="3000" />
+    <param name="stop-on-bind-error" value="true" />
+    <param name="apply-acl" value="loopback.auto" />
+    <!-- type: tcp udp ws callback -->
+    <!-- flow: profiles.profile.name -->
+    <protocol name="tcp" type="tcp" profile="example1" />
+    <protocol name="udp" type="udp" profile="example2" />
+    <protocol name="ws" type="ws" uri="/" profile="example1" />
+    <protocol name="ws-example" type="ws" uri="/example" profile="example2" />
+    <!-- callback: tcp/udp/ws url-->
+    <protocol name="callback-1" type="callback" url="tcp://test.com:9999" profile="example1" />
+    <protocol name="callback-2" type="callback" url="udp://127.0.0.1:9999" profile="example1" />
+    <protocol name="callback-3" type="callback" url="ws://test.com/test" profile="example2" />
+  </settings>
+
+  <profiles>
+    <!-- can use X-PRE-PROCESS include here -->
+    <!-- name: profile name -->
+    <!-- serialization: json xml -->
+    <!-- timeout: ms -->
+    <!-- timeout-name: after the timeout, the specified timeout configuration is used  -->
+    <profile name="example1" serialization="json" timeout="3000" timeout-name="timeout-default">
+      <pre>
+        <!-- process received data -->
+        <reply>
+          <!-- set var -->
+          <!-- key: get from reply -->
+          <!-- value: set to channel var -->
+          <set field="task" var="var_task"/>
+          <set field="param" var="param"/>
+        </reply>
+
+        <!-- send data to remote -->
+        <!-- U can use local var after setting -->
+        <!-- no serialization setting, will use lasta serialization -->
+        <send>
+          <field key="uuid" value="${Channel-Call-UUID}"/>
+          <field key="task" value="${task}"/>
+          <!-- protocol-name is current uesd protocol config's name -->
+          <field key="protocol" value="${protocol-name}"/>
+        </send>
+
+        <!-- can use all app cmd -->
+        <app cmd="set" data="protocol=${protocol-type}"/>
+        <!-- can use all api cmd -->
+        <api cmd="uuid_setvar" data="protocol=${protocol-type}"/>
+        <!-- equal to -->
+        <!-- <api cmd="uuid_setvar" uuid="${Channel-Call-UUID}" data="protocol=${protocol-type}"/> -->
+        <!-- uuid, default current channel uuid -->
+      </pre>
+
+      <listen-event class="CHANNEL_ANSWER">
+        <app cmd="set" data="protocol=${protocol-type}" />
+        <send>
+          <field key="answeredTime" value="${Caller-Channel-Answered-Time}" />
+        </send>
+      </listen-event>
+      <reply serialization="json">
+        <!-- set channel var -->
+        <set channel="message" var="data[0].message" />
+      </reply>
+    </profile>
+
+    <profile name="example2" timeout="3000" timeout-name="timeout-default">
+      <pre>
+        <create-event class="CHANNEL_CREATE">
+          <send>
+            <field key="uuid" value="${Channel-Call-UUID}" />
+            <field key="protocol" value="${protocol-name}" />
+            <field key="caller" value="${Caller-ANI}" />
+            <field key="callee" value="${Caller-Destination-Number}" />
+            <field key="direction" value="${Caller-Direction}" />
+            <condition field="${Caller-Direction}" expression="^inbound$">
+              <field key="custom_phonne" value="${Caller-ANI}" />
+            </condition>            
+            <condition field="${Caller-Direction}" expression="^outbound$">
+              <field key="custom_phonne" value="${Caller-Destination-Number}" />
+            </condition>
+          </send>
+          <create-event class="CUSTOM" subclass="test">
+            <send serialization="json">
+              <field key="answeredTime" value="${Caller-Channel-Answered-Time}" />
+              <condition field="${variable_sip_hangup_disposition}" expression="^recv_bye$">
+                <field key="hangupDirection" value="user" />
+              </condition>
+            </send>
+          </create-event>
+        </create-event>
+      </pre>
+      <listen-event class="CHANNEL_ANSWER">
+        <app cmd="set" data="protocol=${protocol-type}" />
+        <send>
+          <field key="answeredTime" value="${Caller-Channel-Answered-Time}" />
+        </send>
+      </listen-event>
+      <listen-event class="CUSTOM" subclass="test">
+        <app cmd="set" data="protocol=${protocol-type}" />
+        <send>
+          <field key="answeredTime" value="${Caller-Channel-Answered-Time}" />
+        </send>
+      </listen-event>
+      <listen-event class="CHANNEL_HANGUP_COMPLETE">
+        <send>
+          <field key="answeredTime" value="${Caller-Channel-Answered-Time}" />
+          <condition field="${variable_sip_hangup_disposition}" expression="^recv_bye$">
+            <field key="hangupDirection" value="user" />
+          </condition>
+        </send>
+      </listen-event>
+    </profile>
+  </profiles>
+
+  <timeouts>
+    <timeout name="timeout-default">
+      <send serialization="json">
+        <field key="answeredTime" value="${Caller-Channel-Answered-Time}" />
+        <condition field="${variable_sip_hangup_disposition}" expression="^recv_bye$">
+          <field key="hangupDirection" value="user" />
+        </condition>
+      </send>
+      <!-- After hangup, the channel variables will be invalidated -->
+      <app cmd="hangup" />
+    </timeout>
+  </timeouts>
+
+</configuration> 
